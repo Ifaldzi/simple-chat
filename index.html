@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Socket.IO chat</title>
+    <style>
+      body { margin: 0; padding-bottom: 3rem; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+
+      #form { background: rgba(0, 0, 0, 0.15); padding: 0.25rem; position: fixed; bottom: 0; left: 0; right: 0; display: flex; height: 3rem; box-sizing: border-box; backdrop-filter: blur(10px); }
+      #input { border: none; padding: 0 1rem; flex-grow: 1; border-radius: 2rem; margin: 0.25rem; }
+      #input:focus { outline: none; }
+      #form > button { background: #333; border: none; padding: 0 1rem; margin: 0.25rem; border-radius: 3px; outline: none; color: #fff; }
+
+      #messages { list-style-type: none; margin: 0; padding: 0; }
+      #messages > li { padding: 0.5rem 1rem; }
+      #messages > li:nth-child(odd) { background: #efefef; }
+
+      #listOnline {list-style-type: none; margin: 0; padding: 0;}
+      #listOnline > li { padding: 0.5rem 1rem; }
+      #listOnline > li:hover {background-color: #efefef;}
+
+      .grid-container {display: grid; grid-template-columns: auto 40%; height: 100%;}
+
+      .online-container {float: left; height: 100%; overflow: auto; margin: .5em; background-color: azure; display: none;}
+      .message-container {float: left; height: 100%; overflow: auto; }
+
+      html, body, .grid-container {height: 94%;}
+
+      p {padding: 0.5rem 1rem;}
+
+      #modalWindow {z-index: 1; display: block; align-items: center;}
+    </style>
+  </head>
+  <body>
+    <div id="modalWindow">
+        <div>
+          <form id="registNickname" action="" onsubmit="return false;">
+            <p>Enter your name</p>
+            <input id="nickname" autocomplete="off" placeholder="your name"/>
+            <button>Enter</button>
+          </form>
+        </div>
+    </div>
+
+    <div class="grid-container">
+      <div class="message-container">
+        <div>
+            <p id='connection-info'></p>
+        </div>
+        <ul id="messages"></ul>
+        <form id="form" action="">
+          <input id="input" autocomplete="off" /><button>Send</button>
+        </form>
+      </div>
+  
+      <div class="online-container" id="usersList">
+        <p>Online users</p>
+        <ul id="listOnline"></ul>
+      </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        var socket = io({autoConnect: false});
+
+        var messages = document.getElementById('messages');
+        var form = document.getElementById('form');
+        var input = document.getElementById('input');
+        var systemInfo = document.getElementById('connection-info');
+        var listUsers = document.getElementById('listOnline');
+        var selectedUser = null;
+
+        var users = [];
+
+        document.addEventListener('DOMContentLoaded', (e) => {
+            const modalWindow = document.querySelector('#modalWindow');
+            const nickname = document.querySelector('#nickname');
+            const modalBtn = document.querySelector('#registNickname button');
+            const onlineContainer = document.getElementById('usersList');
+
+            modalBtn.addEventListener('click', (e) => {
+                socket.connect();
+                socket.emit('enter room', nickname.value);
+                modalWindow.parentElement.removeChild(modalWindow);
+                onlineContainer.style.display = 'block';
+            })
+        })
+
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            if (input.value) {
+                const user = users.find((user) => {
+                  return user.userId == socket.id;
+                })
+                var message = user.nickname + ': ' + input.value;
+                console.log(message);
+                if(selectedUser) {
+                  selectedUser.messages.push(message);
+                  console.log(selectedUser);
+                  socket.emit('private message', {message, to: selectedUser.userId});
+                  input.value = '';
+                  showPrivateMessage();
+                } else {
+                  socket.emit('chat message', input.value);
+                  input.value = '';
+                }
+                console.log(socket.id);
+            }
+        });
+
+        socket.on('chat message', function(msg) {
+          if(!selectedUser) {
+            var item = document.createElement('li');
+            item.textContent = msg;
+            messages.appendChild(item);
+            // scroll message container to the newest message
+            const messageContainer = document.getElementsByClassName('message-container')[0];
+            messageContainer.scrollTo(0, messageContainer.scrollHeight);
+
+            systemInfo.innerHTML = '';
+          }
+        });
+
+        socket.on('private message', ({message, from}) => {
+          for (let i=0; i < users.length ; i++) {
+            const user = users[i];
+            if (user.userId == from) {
+              user.messages.push(message);
+              user.hasNewMessage = (user !== selectedUser);
+              break;
+            }
+          }
+          systemInfo.innerHTML = '';
+          updateUserList();
+        })
+
+        socket.on('user connected', function(msg, user) {
+            // systemInfo.innerHTML = msg;
+            var item = document.createElement('li');
+            item.style = 'text-align: center';
+            item.textContent = msg;
+            messages.appendChild(item);
+            initUserExtraProperty(user);
+            users.push(user);
+            updateUserList();
+        });
+
+        socket.on('users', (users) => {
+          for(var k in users) {
+            var user = {
+              userId : k,
+              nickname : users[k],
+              self : k == socket.id,
+            };
+            initUserExtraProperty(user);
+            this.users.push(user);
+          }
+          updateUserList();
+        });
+
+        function initUserExtraProperty(user) {
+          user.messages = [];
+          user.hasNewMessage = false;
+        }
+
+        function updateUserList() {
+          listUsers.innerHTML = '';
+          users.forEach((user) => {
+            var item = document.createElement('li');
+              item.textContent = user.nickname + (user.self ? ' (yourself)' : '') + (user.hasNewMessage ? ' *' : '');
+              item.style.backgroundColor = (user === selectedUser ? '#efefef' : '');
+              item.onclick = () => {
+                selectedUser = user;
+                selectedUser.hasNewMessage = false;
+                updateUserList();
+                showPrivateMessage();
+              }
+              listUsers.appendChild(item);
+          })
+        }
+
+        function showPrivateMessage() {
+          console.log(selectedUser.messages);
+          messages.innerHTML = '';
+          selectedUser.messages.forEach((message) => {
+            var item = document.createElement('li');
+            item.textContent = message;
+            messages.appendChild(item);
+          })
+        }
+
+        socket.on('update online users', (userId) => {
+            for (let i=0; i < users.length; i++) {
+              if (users[i].userId == userId) {
+                users.splice(i, 1);
+                break;
+              }
+            }
+            updateUserList();
+        })
+
+        socket.on('user disconnected', function(msg) {
+            var item = document.createElement('li');
+            item.style = 'text-align: center';
+            item.textContent = msg;
+            messages.appendChild(item);
+        });
+
+        input.oninput = function() {
+          console.log(input.value.length);
+          if(input.value.length > 0){
+            socket.emit('typing');
+          } else {
+            socket.emit('stop typing');
+          }
+        }
+
+        socket.on('typing', (msgTyping) => {
+            systemInfo.innerHTML = msgTyping;
+        });
+
+        socket.on('stop typing', () => {
+          systemInfo.innerHTML = '';
+        })
+    </script>
+  </body>
+</html>
