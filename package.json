@@ -2,6 +2,9 @@
     "name": "simple-chat-with-socket",
     "version": "1.0.1",
     "description": "Simple chat app with socket io",
+    "scripts": {
+        "start": "node index"
+    },
     "dependencies": {
         "express": "^4.17.1",
         "socket.io": "^4.1.3"
